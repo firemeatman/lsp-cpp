@@ -1,6 +1,7 @@
-#include <iostream>
+﻿#include <iostream>
 #include <thread>
-#include "client.h"
+#include <lsp/client.h>
+
 int main() {
     URI uri;
     uri.parse("https://www.baidu.com/test/asdf");
