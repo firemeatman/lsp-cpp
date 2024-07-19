@@ -3,7 +3,12 @@ project(LspCPP VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
+option(LspBuildTest "build test" ON)
+
 add_subdirectory(lsp)
-add_subdirectory(test)
+if(LspBuildTest)
+    add_subdirectory(test)
+endif()
+
 
 
