@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by Alex on 2020/1/28.
 //
 
@@ -32,6 +32,7 @@ public:
     RequestID RegisterCapability() {
         return SendRequest("client/registerCapability");
     }
+    //=============文档同步相关API=========================================
     void DidOpen(DocumentUri uri, string_ref text, string_ref languageId = "cpp") {
         DidOpenTextDocumentParams params;
         params.textDocument.uri = std::move(uri);
@@ -51,6 +52,33 @@ public:
         params.contentChanges = std::move(changes);
         params.wantDiagnostics = wantDiagnostics;
         SendNotify("textDocument/didChange", params);
+    }
+    //=============语言特性相关API=========================================
+    // 跳转
+    RequestID GoToDefinition(DocumentUri uri, Position position) {
+        TextDocumentPositionParams params;
+        params.textDocument.uri = std::move(uri);
+        params.position = position;
+        return SendRequest("textDocument/definition", std::move(params));
+    }
+    // 跳转
+    RequestID GoToDeclaration(DocumentUri uri, Position position) {
+        TextDocumentPositionParams params;
+        params.textDocument.uri = std::move(uri);
+        params.position = position;
+        return SendRequest("textDocument/declaration", std::move(params));
+    }
+    RequestID References(DocumentUri uri, Position position) {
+        ReferenceParams params;
+        params.textDocument.uri = std::move(uri);
+        params.position = position;
+        return SendRequest("textDocument/references", std::move(params));
+    }
+    // 获取文档的词语列表
+    RequestID SemanticTokensALL(DocumentUri uri, ProgressToken token = "") {
+        SemanticTokensParams params;
+        params.textDocument.uri = uri;
+        return SendRequest(METHOD_SemanticTokensFull, std::move(params));
     }
     RequestID RangeFomatting(DocumentUri uri, Range range) {
         DocumentRangeFormattingParams params;
@@ -101,24 +129,6 @@ public:
         params.position = position;
         return SendRequest("textDocument/signatureHelp", std::move(params));
     }
-    RequestID GoToDefinition(DocumentUri uri, Position position) {
-        TextDocumentPositionParams params;
-        params.textDocument.uri = std::move(uri);
-        params.position = position;
-        return SendRequest("textDocument/definition", std::move(params));
-    }
-    RequestID GoToDeclaration(DocumentUri uri, Position position) {
-        TextDocumentPositionParams params;
-        params.textDocument.uri = std::move(uri);
-        params.position = position;
-        return SendRequest("textDocument/declaration", std::move(params));
-    }
-    RequestID References(DocumentUri uri, Position position) {
-        ReferenceParams params;
-        params.textDocument.uri = std::move(uri);
-        params.position = position;
-        return SendRequest("textDocument/references", std::move(params));
-    }
     RequestID SwitchSourceHeader(DocumentUri uri) {
         TextDocumentIdentifier params;
         params.uri = std::move(uri);
@@ -167,6 +177,9 @@ public:
         params.resolve = resolve;
         return SendRequest("textDocument/typeHierarchy", std::move(params));
     }
+
+
+    //=============工作区相关API=========================================
     RequestID WorkspaceSymbol(string_ref query) {
         WorkspaceSymbolParams params;
         params.query = query;
@@ -303,13 +316,11 @@ public:
         } catch (std::exception &e) {
             //printf("read error -> %s\nread -> %s\n ", e.what(), read.c_str());
         }
-        //printf("message %d:\n%s\n", length, read.c_str());
         return true;
     }
     bool writeJson(json &json) override {
-        std::string content = json.dump();
+        std::string content = json.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
         std::string header = "Content-Length: " + std::to_string(content.length()) + "\r\n\r\n" + content;
-        //printf("send:\n%s\n", content.c_str());
         return Write(header);
     }
 };

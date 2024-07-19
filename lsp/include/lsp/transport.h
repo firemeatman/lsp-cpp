@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by Alex on 2020/1/28.
 //
 
@@ -106,7 +106,7 @@ public:
                 }
             } catch (std::exception &e) {
 
-                //printf("error -> %s\n", e.what());
+                printf("error -> %s\n", e.what());
             }
         }
         return 0;

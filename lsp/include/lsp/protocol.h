@@ -1,10 +1,20 @@
-//
+﻿//
 // Created by Alex on 2020/1/28.
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Most of the code comes from clangd(Protocol.h)
+
+//version LSP 3.17 https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification
+//this file contents have 4 parts, you can search it to find what you want.
+//or add something in correct place.
+//
+//1. basic JSON struct
+//2. Lifecycle Messages struct
+//3. Document Synchronization struct (include part of clanged's json param)
+//4. Language Feartures struct (may content others)
+//5. workspace..(None)
 
 #ifndef LSP_PROTOCOL_H
 #define LSP_PROTOCOL_H
@@ -14,6 +24,7 @@
 #include <map>
 #include <memory>
 #include "uri.h"
+
 #define MAP_JSON(...) {j = {__VA_ARGS__};}
 #define MAP_KEY(KEY) {#KEY, value.KEY}
 #define MAP_TO(KEY, TO) {KEY, value.TO}
@@ -26,7 +37,21 @@
             static void from_json(const json& j, Type& value) FROM \
         }; \
     }
+
+static std::string METHOD_DidOpen = "textDocument/didOpen";
+static std::string METHOD_DidClose = "textDocument/didClose";
+static std::string METHOD_DidChange = "textDocument/didChange";
+static std::string METHOD_Definition = "textDocument/definition";
+static std::string METHOD_Declaration = "textDocument/declaration";
+static std::string METHOD_References = "textDocument/references";
+static std::string METHOD_SemanticTokensFull = "textDocument/semanticTokens/full";
+static std::string METHOD_PublishDiagnostics = "textDocument/publishDiagnostics";
+
+
 using TextType = string_ref;
+//TODO: 支持多个类型, string和int
+using ProgressToken = string_ref;
+
 enum class ErrorCode {
     // Defined by JSON RPC.
     ParseError = -32700,
@@ -47,109 +72,11 @@ public:
     LSPError(std::string Message, ErrorCode Code)
             : Message(std::move(Message)), Code(Code) {}
 };
-JSON_SERIALIZE(URIForFile, {j = value.file;}, {value.file = j.get<std::string>();});
-struct TextDocumentIdentifier {
-    /// The text document's URI.
-    DocumentUri uri;
-};
-JSON_SERIALIZE(TextDocumentIdentifier, MAP_JSON(MAP_KEY(uri)), {});
+JSON_SERIALIZE(URIForFile, {j = value.file;}, {value.file = j.get<std::string>();});\
 
-struct VersionedTextDocumentIdentifier : public TextDocumentIdentifier {
-    int version = 0;
-};
-JSON_SERIALIZE(VersionedTextDocumentIdentifier, MAP_JSON(MAP_KEY(uri), MAP_KEY(version)), {});
-
-struct Position {
-    /// Line position in a document (zero-based).
-    int line = 0;
-    /// Character offset on a line in a document (zero-based).
-    /// WARNING: this is in UTF-16 codepoints, not bytes or characters!
-    /// Use the functions in SourceCode.h to construct/interpret Positions.
-    int character = 0;
-    friend bool operator==(const Position &LHS, const Position &RHS) {
-        return std::tie(LHS.line, LHS.character) ==
-               std::tie(RHS.line, RHS.character);
-    }
-    friend bool operator!=(const Position &LHS, const Position &RHS) {
-        return !(LHS == RHS);
-    }
-    friend bool operator<(const Position &LHS, const Position &RHS) {
-        return std::tie(LHS.line, LHS.character) <
-               std::tie(RHS.line, RHS.character);
-    }
-    friend bool operator<=(const Position &LHS, const Position &RHS) {
-        return std::tie(LHS.line, LHS.character) <=
-               std::tie(RHS.line, RHS.character);
-    }
-};
-JSON_SERIALIZE(Position, MAP_JSON(MAP_KEY(line), MAP_KEY(character)), {FROM_KEY(line);FROM_KEY(character)});
-
-struct Range {
-    /// The range's start position.
-    Position start;
-
-    /// The range's end position.
-    Position end;
-
-    friend bool operator==(const Range &LHS, const Range &RHS) {
-        return std::tie(LHS.start, LHS.end) == std::tie(RHS.start, RHS.end);
-    }
-    friend bool operator!=(const Range &LHS, const Range &RHS) {
-        return !(LHS == RHS);
-    }
-    friend bool operator<(const Range &LHS, const Range &RHS) {
-        return std::tie(LHS.start, LHS.end) < std::tie(RHS.start, RHS.end);
-    }
-    bool contains(Position Pos) const { return start <= Pos && Pos < end; }
-    bool contains(Range Rng) const {
-        return start <= Rng.start && Rng.end <= end;
-    }
-};
-JSON_SERIALIZE(Range, MAP_JSON(MAP_KEY(start), MAP_KEY(end)), {FROM_KEY(start);FROM_KEY(end)});
-
-struct Location {
-    /// The text document's URI.
-    std::string uri;
-    Range range;
-
-    friend bool operator==(const Location &LHS, const Location &RHS) {
-        return LHS.uri == RHS.uri && LHS.range == RHS.range;
-    }
-    friend bool operator!=(const Location &LHS, const Location &RHS) {
-        return !(LHS == RHS);
-    }
-    friend bool operator<(const Location &LHS, const Location &RHS) {
-        return std::tie(LHS.uri, LHS.range) < std::tie(RHS.uri, RHS.range);
-    }
-};
-JSON_SERIALIZE(Location, MAP_JSON(MAP_KEY(uri), MAP_KEY(range)), {FROM_KEY(uri);FROM_KEY(range)});
-
-struct TextEdit {
-    /// The range of the text document to be manipulated. To insert
-    /// text into a document create a range where start === end.
-    Range range;
-
-    /// The string to be inserted. For delete operations use an
-    /// empty string.
-    std::string newText;
-};
-JSON_SERIALIZE(TextEdit, MAP_JSON(MAP_KEY(range), MAP_KEY(newText)), {FROM_KEY(range);FROM_KEY(newText);});
-
-struct TextDocumentItem {
-    /// The text document's URI.
-    DocumentUri uri;
-
-    /// The text document's language identifier.
-    string_ref languageId;
-
-    /// The version number of this document (it will strictly increase after each
-    int version = 0;
-
-    /// The content of the opened text document.
-    string_ref text;
-};
-JSON_SERIALIZE(TextDocumentItem, MAP_JSON(
-                MAP_KEY(uri), MAP_KEY(languageId), MAP_KEY(version), MAP_KEY(text)), {});
+//=======================================================================================
+//=================================== 1.basic JSON struct================================
+//=======================================================================================
 
 enum class TraceLevel {
     Off = 0,
@@ -251,22 +178,207 @@ NLOHMANN_JSON_SERIALIZE_ENUM(OffsetEncoding, {
     {OffsetEncoding::UTF8, "utf-8"},
     {OffsetEncoding::UTF16, "utf-16"},
     {OffsetEncoding::UTF32, "utf-32"},
-})
-NLOHMANN_JSON_SERIALIZE_ENUM(MarkupKind, {
-    {MarkupKind::PlainText, "plaintext"},
-    {MarkupKind::Markdown, "markdown"},
-})
-NLOHMANN_JSON_SERIALIZE_ENUM(ResourceOperationKind, {
-    {ResourceOperationKind::Create, "create"},
-    {ResourceOperationKind::Rename, "rename"},
-    {ResourceOperationKind::Delete, "dename"}
-})
-NLOHMANN_JSON_SERIALIZE_ENUM(FailureHandlingKind, {
-    {FailureHandlingKind::Abort, "abort"},
-    {FailureHandlingKind::Transactional, "transactional"},
-    {FailureHandlingKind::Undo, "undo"},
-    {FailureHandlingKind::TextOnlyTransactional, "textOnlyTransactional"}
-})
+    })
+    NLOHMANN_JSON_SERIALIZE_ENUM(MarkupKind, {
+        {MarkupKind::PlainText, "plaintext"},
+        {MarkupKind::Markdown, "markdown"},
+        })
+        NLOHMANN_JSON_SERIALIZE_ENUM(ResourceOperationKind, {
+            {ResourceOperationKind::Create, "create"},
+            {ResourceOperationKind::Rename, "rename"},
+            {ResourceOperationKind::Delete, "dename"}
+            })
+    NLOHMANN_JSON_SERIALIZE_ENUM(FailureHandlingKind, {
+        {FailureHandlingKind::Abort, "abort"},
+        {FailureHandlingKind::Transactional, "transactional"},
+        {FailureHandlingKind::Undo, "undo"},
+        {FailureHandlingKind::TextOnlyTransactional, "textOnlyTransactional"}
+        })
+
+struct Position {
+    /// Line position in a document (zero-based).
+    int line = 0;
+    /// Character offset on a line in a document (zero-based).
+    /// WARNING: this is in UTF-16 codepoints, not bytes or characters!
+    /// Use the functions in SourceCode.h to construct/interpret Positions.
+    int character = 0;
+    friend bool operator==(const Position &LHS, const Position &RHS) {
+        return std::tie(LHS.line, LHS.character) ==
+               std::tie(RHS.line, RHS.character);
+    }
+    friend bool operator!=(const Position &LHS, const Position &RHS) {
+        return !(LHS == RHS);
+    }
+    friend bool operator<(const Position &LHS, const Position &RHS) {
+        return std::tie(LHS.line, LHS.character) <
+               std::tie(RHS.line, RHS.character);
+    }
+    friend bool operator<=(const Position &LHS, const Position &RHS) {
+        return std::tie(LHS.line, LHS.character) <=
+               std::tie(RHS.line, RHS.character);
+    }
+};
+JSON_SERIALIZE(Position, MAP_JSON(MAP_KEY(line), MAP_KEY(character)), {FROM_KEY(line);FROM_KEY(character)});
+
+struct Range {
+    /// The range's start position.
+    Position start;
+
+    /// The range's end position.
+    Position end;
+
+    friend bool operator==(const Range &LHS, const Range &RHS) {
+        return std::tie(LHS.start, LHS.end) == std::tie(RHS.start, RHS.end);
+    }
+    friend bool operator!=(const Range &LHS, const Range &RHS) {
+        return !(LHS == RHS);
+    }
+    friend bool operator<(const Range &LHS, const Range &RHS) {
+        return std::tie(LHS.start, LHS.end) < std::tie(RHS.start, RHS.end);
+    }
+    bool contains(Position Pos) const { return start <= Pos && Pos < end; }
+    bool contains(Range Rng) const {
+        return start <= Rng.start && Rng.end <= end;
+    }
+};
+JSON_SERIALIZE(Range, MAP_JSON(MAP_KEY(start), MAP_KEY(end)), {FROM_KEY(start);FROM_KEY(end)});
+
+struct TextDocumentItem {
+    /// The text document's URI.
+    DocumentUri uri;
+
+    /// The text document's language identifier.
+    string_ref languageId;
+
+    /// The version number of this document (it will strictly increase after each
+    int version = 0;
+
+    /// The content of the opened text document.
+    string_ref text;
+};
+JSON_SERIALIZE(TextDocumentItem, MAP_JSON(
+                MAP_KEY(uri), MAP_KEY(languageId), MAP_KEY(version), MAP_KEY(text)), {});
+
+struct TextDocumentIdentifier {
+    /// The text document's URI.
+    DocumentUri uri;
+};
+JSON_SERIALIZE(TextDocumentIdentifier, MAP_JSON(MAP_KEY(uri)), {});
+
+struct VersionedTextDocumentIdentifier : public TextDocumentIdentifier {
+    int version = 0;
+};
+JSON_SERIALIZE(VersionedTextDocumentIdentifier, MAP_JSON(MAP_KEY(uri), MAP_KEY(version)), {});
+
+struct TextDocumentPositionParams {
+    /// The text document.
+    TextDocumentIdentifier textDocument;
+
+    /// The position inside the text document.
+    Position position;
+};
+JSON_SERIALIZE(TextDocumentPositionParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position)), {});
+
+struct TextEdit {
+    /// The range of the text document to be manipulated. To insert
+    /// text into a document create a range where start === end.
+    Range range;
+
+    /// The string to be inserted. For delete operations use an
+    /// empty string.
+    std::string newText;
+};
+JSON_SERIALIZE(TextEdit, MAP_JSON(MAP_KEY(range), MAP_KEY(newText)), { FROM_KEY(range); FROM_KEY(newText); });
+
+struct Location {
+    /// The text document's URI.
+    std::string uri;
+    Range range;
+
+    friend bool operator==(const Location& LHS, const Location& RHS) {
+        return LHS.uri == RHS.uri && LHS.range == RHS.range;
+    }
+    friend bool operator!=(const Location& LHS, const Location& RHS) {
+        return !(LHS == RHS);
+    }
+    friend bool operator<(const Location& LHS, const Location& RHS) {
+        return std::tie(LHS.uri, LHS.range) < std::tie(RHS.uri, RHS.range);
+    }
+};
+JSON_SERIALIZE(Location, MAP_JSON(MAP_KEY(uri), MAP_KEY(range)), { FROM_KEY(uri); FROM_KEY(range); });
+
+struct DiagnosticRelatedInformation {
+    /// The location of this related diagnostic information.
+    Location location;
+    /// The message of this related diagnostic information.
+    std::string message;
+};
+JSON_SERIALIZE(DiagnosticRelatedInformation, MAP_JSON(MAP_KEY(location), MAP_KEY(message)), { FROM_KEY(location); FROM_KEY(message); });
+struct CodeAction;
+
+struct Diagnostic {
+    /// The range at which the message applies.
+    Range range;
+
+    /// The diagnostic's severity. Can be omitted. If omitted it is up to the
+    /// client to interpret diagnostics as error, warning, info or hint.
+    int severity = 0;
+
+    /// The diagnostic's code. Can be omitted.
+    std::string code;
+
+    /// A human-readable string describing the source of this
+    /// diagnostic, e.g. 'typescript' or 'super lint'.
+    std::string source;
+
+    /// The diagnostic's message.
+    std::string message;
+
+    /// An array of related diagnostic information, e.g. when symbol-names within
+    /// a scope collide all definitions can be marked via this property.
+    option<std::vector<DiagnosticRelatedInformation>> relatedInformation;
+
+    /// The diagnostic's category. Can be omitted.
+    /// An LSP extension that's used to send the name of the category over to the
+    /// client. The category typically describes the compilation stage during
+    /// which the issue was produced, e.g. "Semantic Issue" or "Parse Issue".
+    option<std::string> category;
+
+    /// Clangd extension: code actions related to this diagnostic.
+    /// Only with capability textDocument.publishDiagnostics.codeActionsInline.
+    /// (These actions can also be obtained using textDocument/codeAction).
+    option<std::vector<CodeAction>> codeActions;
+};
+JSON_SERIALIZE(Diagnostic, {/*NOT REQUIRED*/ }, { FROM_KEY(range); FROM_KEY(code); FROM_KEY(source); FROM_KEY(message);
+                FROM_KEY(relatedInformation); FROM_KEY(category); FROM_KEY(codeActions); });
+
+struct MarkupContent {
+    MarkupKind kind = MarkupKind::PlainText;
+    std::string value;
+};
+JSON_SERIALIZE(MarkupContent, {}, { FROM_KEY(kind); FROM_KEY(value) });
+
+struct WorkDoneProgressParams {
+    /**
+     * An optional token that a server can use to report work done progress.
+     */
+    option<ProgressToken> workDoneToken;
+};
+JSON_SERIALIZE(WorkDoneProgressParams, MAP_JSON(MAP_KEY(workDoneToken)), {});
+
+struct PartialResultParams {
+    /**
+     * An optional token that a server can use to report partial results (e.g.
+     * streaming) to the client.
+     */
+    option<ProgressToken> partialResultToken;
+};
+JSON_SERIALIZE(PartialResultParams, MAP_JSON(MAP_KEY(partialResultToken)), {});
+
+
+//=======================================================================================
+//===================================2.Lifecycle Messages struct==========================
+//=======================================================================================
 
 struct ClientCapabilities {
     /// The supported set of SymbolKinds for workspace/symbol.
@@ -472,6 +584,13 @@ struct UnregistrationParams {
 };
 JSON_SERIALIZE(UnregistrationParams, MAP_JSON(MAP_KEY(unregisterations)), {});
 
+
+
+//=======================================================================================
+//===================================3.Document Synchronization struct===================
+//=======================================================================================
+
+
 struct DidOpenTextDocumentParams {
 /// The document that was opened.
     TextDocumentItem textDocument;
@@ -560,6 +679,44 @@ struct DocumentOnTypeFormattingParams {
 };
 JSON_SERIALIZE(DocumentOnTypeFormattingParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position), MAP_KEY(ch)), {});
 
+
+//=======================================================================================
+//===================================4.Language Feartures struct=========================
+//=======================================================================================
+
+struct DeclarationParams : public TextDocumentPositionParams,
+    WorkDoneProgressParams, PartialResultParams {
+
+};
+JSON_SERIALIZE(DeclarationParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position), MAP_KEY(workDoneToken), MAP_KEY(partialResultToken)), {});
+struct DefinitionParams : public TextDocumentPositionParams,
+    WorkDoneProgressParams, PartialResultParams {
+};
+JSON_SERIALIZE(DefinitionParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position), MAP_KEY(workDoneToken), MAP_KEY(partialResultToken)), {});
+struct TypeDefinitionParams : public TextDocumentPositionParams,
+    WorkDoneProgressParams, PartialResultParams {
+};
+JSON_SERIALIZE(TypeDefinitionParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position), MAP_KEY(workDoneToken), MAP_KEY(partialResultToken)), {});
+struct ImplementationParams : public TextDocumentPositionParams,
+    WorkDoneProgressParams, PartialResultParams {
+};
+JSON_SERIALIZE(ImplementationParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position), MAP_KEY(workDoneToken), MAP_KEY(partialResultToken)), {});
+struct ReferenceParams : public TextDocumentPositionParams,
+WorkDoneProgressParams, PartialResultParams {
+    // For now, no options like context.includeDeclaration are supported.
+};
+JSON_SERIALIZE(ReferenceParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position), MAP_KEY(workDoneToken), MAP_KEY(partialResultToken)),{});
+
+struct Hover {
+    /// The hover's content
+    MarkupContent contents;
+
+    /// An optional range is a range inside a text document
+    /// that is used to visualize a hover, e.g. by changing the background color.
+    option<Range> range;
+};
+JSON_SERIALIZE(Hover, {}, { FROM_KEY(contents); FROM_KEY(range) });
+
 struct FoldingRangeParams {
     /// The document to format.
     TextDocumentIdentifier textDocument;
@@ -626,6 +783,14 @@ JSON_SERIALIZE(SelectionRange, {}, {
     }
 });
 
+struct SemanticTokensParams : public WorkDoneProgressParams, PartialResultParams {
+    /**
+     * The text document.
+     */
+    TextDocumentIdentifier textDocument;
+};
+JSON_SERIALIZE(SemanticTokensParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(workDoneToken), MAP_KEY(partialResultToken)), {});
+
 struct DocumentFormattingParams {
     /// The document to format.
     TextDocumentIdentifier textDocument;
@@ -637,51 +802,6 @@ struct DocumentSymbolParams {
     TextDocumentIdentifier textDocument;
 };
 JSON_SERIALIZE(DocumentSymbolParams, MAP_JSON(MAP_KEY(textDocument)), {});
-
-struct DiagnosticRelatedInformation {
-    /// The location of this related diagnostic information.
-    Location location;
-    /// The message of this related diagnostic information.
-    std::string message;
-};
-JSON_SERIALIZE(DiagnosticRelatedInformation, MAP_JSON(MAP_KEY(location), MAP_KEY(message)), {FROM_KEY(location);FROM_KEY(message);});
-struct CodeAction;
-
-struct Diagnostic {
-    /// The range at which the message applies.
-    Range range;
-
-    /// The diagnostic's severity. Can be omitted. If omitted it is up to the
-    /// client to interpret diagnostics as error, warning, info or hint.
-    int severity = 0;
-
-    /// The diagnostic's code. Can be omitted.
-    std::string code;
-
-    /// A human-readable string describing the source of this
-    /// diagnostic, e.g. 'typescript' or 'super lint'.
-    std::string source;
-
-    /// The diagnostic's message.
-    std::string message;
-
-    /// An array of related diagnostic information, e.g. when symbol-names within
-    /// a scope collide all definitions can be marked via this property.
-    option<std::vector<DiagnosticRelatedInformation>> relatedInformation;
-
-    /// The diagnostic's category. Can be omitted.
-    /// An LSP extension that's used to send the name of the category over to the
-    /// client. The category typically describes the compilation stage during
-    /// which the issue was produced, e.g. "Semantic Issue" or "Parse Issue".
-    option<std::string> category;
-
-    /// Clangd extension: code actions related to this diagnostic.
-    /// Only with capability textDocument.publishDiagnostics.codeActionsInline.
-    /// (These actions can also be obtained using textDocument/codeAction).
-    option<std::vector<CodeAction>> codeActions;
-};
-JSON_SERIALIZE(Diagnostic, {/*NOT REQUIRED*/},{FROM_KEY(range);FROM_KEY(code);FROM_KEY(source);FROM_KEY(message);
-                FROM_KEY(relatedInformation);FROM_KEY(category);FROM_KEY(codeActions);});
 
 struct PublishDiagnosticsParams {
     /**
@@ -713,6 +833,7 @@ struct CodeActionParams {
 };
 JSON_SERIALIZE(CodeActionParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(range), MAP_KEY(context)), {});
 
+// 过时了，不建议使用
 struct WorkspaceEdit {
     /// Holds changes to existing resources.
     option<std::map<std::string, std::vector<TextEdit>>> changes;
@@ -721,7 +842,7 @@ struct WorkspaceEdit {
     /// no support for versioned edits.
 };
 JSON_SERIALIZE(WorkspaceEdit, MAP_JSON(MAP_KEY(changes)), {FROM_KEY(changes);});
-
+// 过时了，不建议使用
 struct TweakArgs {
     /// A file provided by the client on a textDocument/codeAction request.
     std::string file;
@@ -731,7 +852,7 @@ struct TweakArgs {
     std::string tweakID;
 };
 JSON_SERIALIZE(TweakArgs, MAP_JSON(MAP_KEY(file), MAP_KEY(selection), MAP_KEY(tweakID)), {FROM_KEY(file);FROM_KEY(selection);FROM_KEY(tweakID);});
-
+// 过时了，不建议使用
 struct ExecuteCommandParams {
     std::string command;
     // Arguments
@@ -739,7 +860,7 @@ struct ExecuteCommandParams {
     option<TweakArgs> tweakArgs;
 };
 JSON_SERIALIZE(ExecuteCommandParams, MAP_JSON(MAP_KEY(command), MAP_KEY(workspaceEdit), MAP_KEY(tweakArgs)), {});
-
+// 过时了，不建议使用
 struct LspCommand : public ExecuteCommandParams {
     std::string title;
 };
@@ -801,15 +922,6 @@ struct ApplyWorkspaceEditParams {
 };
 JSON_SERIALIZE(ApplyWorkspaceEditParams, MAP_JSON(MAP_KEY(edit)), {});
 
-struct TextDocumentPositionParams {
-    /// The text document.
-    TextDocumentIdentifier textDocument;
-
-    /// The position inside the text document.
-    Position position;
-};
-JSON_SERIALIZE(TextDocumentPositionParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position)), {});
-
 enum class CompletionTriggerKind {
     /// Completion was triggered by typing an identifier (24x7 code
     /// complete), manual invocation (e.g Ctrl+Space) or via API.
@@ -833,22 +945,6 @@ struct CompletionParams : TextDocumentPositionParams {
     option<CompletionContext> context;
 };
 JSON_SERIALIZE(CompletionParams, MAP_JSON(MAP_KEY(context), MAP_KEY(textDocument), MAP_KEY(position)), {});
-
-struct MarkupContent {
-    MarkupKind kind = MarkupKind::PlainText;
-    std::string value;
-};
-JSON_SERIALIZE(MarkupContent, {}, {FROM_KEY(kind);FROM_KEY(value)});
-
-struct Hover {
-    /// The hover's content
-    MarkupContent contents;
-
-    /// An optional range is a range inside a text document
-    /// that is used to visualize a hover, e.g. by changing the background color.
-    option<Range> range;
-};
-JSON_SERIALIZE(Hover, {}, {FROM_KEY(contents);FROM_KEY(range)});
 
 enum class InsertTextFormat {
     Missing = 0,
@@ -1084,17 +1180,19 @@ struct TypeHierarchyItem {
     /// so don't declare it.
 };
 
-struct ReferenceParams : public TextDocumentPositionParams {
-    // For now, no options like context.includeDeclaration are supported.
-};
-JSON_SERIALIZE(ReferenceParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position)), {});
-struct FileStatus {
-    /// The text document's URI.
-    DocumentUri uri;
-    /// The human-readable string presents the current state of the file, can be
-    /// shown in the UI (e.g. status bar).
-    TextType state;
-    // FIXME: add detail messages.
-};
+
+
+
+
+//struct FileStatus {
+//    /// The text document's URI.
+//    DocumentUri uri;
+//    /// The human-readable string presents the current state of the file, can be
+//    /// shown in the UI (e.g. status bar).
+//    TextType state;
+//    // FIXME: add detail messages.
+//};
+
+
 
 #endif //LSP_PROTOCOL_H

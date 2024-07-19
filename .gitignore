@@ -33,6 +33,8 @@
 
 .idea/
 .vs/
+.cache/
 out/
+compile_commands.json
 CMakeSettings.json
 cmake-build-debug/
