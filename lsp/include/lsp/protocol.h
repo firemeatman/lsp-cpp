@@ -38,14 +38,15 @@
         }; \
     }
 
-static std::string METHOD_DidOpen = "textDocument/didOpen";
-static std::string METHOD_DidClose = "textDocument/didClose";
-static std::string METHOD_DidChange = "textDocument/didChange";
-static std::string METHOD_Definition = "textDocument/definition";
-static std::string METHOD_Declaration = "textDocument/declaration";
-static std::string METHOD_References = "textDocument/references";
-static std::string METHOD_SemanticTokensFull = "textDocument/semanticTokens/full";
-static std::string METHOD_PublishDiagnostics = "textDocument/publishDiagnostics";
+const static std::string METHOD_DidOpen = "textDocument/didOpen";
+const static std::string METHOD_DidClose = "textDocument/didClose";
+const static std::string METHOD_DidChange = "textDocument/didChange";
+const static std::string METHOD_Definition = "textDocument/definition";
+const static std::string METHOD_Declaration = "textDocument/declaration";
+const static std::string METHOD_References = "textDocument/references";
+const static std::string METHOD_SemanticTokensFull = "textDocument/semanticTokens/full";
+const static std::string METHOD_PublishDiagnostics = "textDocument/publishDiagnostics";
+const static std::string METHOD_Hover = "textDocument/hover";
 
 
 using TextType = string_ref;
@@ -707,6 +708,10 @@ WorkDoneProgressParams, PartialResultParams {
 };
 JSON_SERIALIZE(ReferenceParams, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position), MAP_KEY(workDoneToken), MAP_KEY(partialResultToken)),{});
 
+struct HoverParam: public TextDocumentPositionParams, WorkDoneProgressParams {
+
+};
+JSON_SERIALIZE(HoverParam, MAP_JSON(MAP_KEY(textDocument), MAP_KEY(position), MAP_KEY(workDoneToken)), {});
 struct Hover {
     /// The hover's content
     MarkupContent contents;
