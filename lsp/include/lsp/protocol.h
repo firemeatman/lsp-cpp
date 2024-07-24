@@ -47,7 +47,8 @@ const static std::string METHOD_References = "textDocument/references";
 const static std::string METHOD_SemanticTokensFull = "textDocument/semanticTokens/full";
 const static std::string METHOD_PublishDiagnostics = "textDocument/publishDiagnostics";
 const static std::string METHOD_Hover = "textDocument/hover";
-
+const static std::string METHOD_SignatureHelp = "textDocument/signatureHelp";
+const static std::string METHOD_Completion = "textDocument/completion";
 
 using TextType = string_ref;
 //TODO: 支持多个类型, string和int

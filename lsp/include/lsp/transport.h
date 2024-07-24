@@ -8,24 +8,82 @@
 #include "uri.h"
 #include <functional>
 #include <utility>
+#include <iostream>
+#include <mutex>
+
 using value = json;
 using RequestID = std::string;
 
 class MessageHandler {
 public:
+    enum class MsgType{
+        Request,
+        Response,
+        Error,
+        Notify
+    };
+public:
     MessageHandler() = default;
-    virtual void onNotify(string_ref method, value &params) {}
-    virtual void onResponse(value &ID, value &result) {}
-    virtual void onError(value &ID, value &error) {}
-    virtual void onRequest(string_ref method, value &params, value &ID) {}
+
+    virtual void onAnyJsonRPC(MsgType type, value& dataPart, string_ref method = nullptr) = 0;
+    virtual void onNotify(string_ref method, value &params) = 0;
+    virtual void onResponse(value &ID, value &result) = 0;
+    virtual void onError(value &ID, value &error) = 0;
+    virtual void onRequest(string_ref method, value &params, value &ID) = 0;
 
 };
+
+
 class MapMessageHandler : public MessageHandler {
 public:
     std::map<std::string, std::function<void(value &, RequestID)>> m_calls;
     std::map<std::string, std::function<void(value &)>> m_notify;
     std::vector<std::pair<RequestID, std::function<void(value &)>>> m_requests;
+    std::function<void(MsgType, value&, string_ref)> m_anyJsonCallback = nullptr;
+    std::mutex m_lock;
+
+    // 用于线程安全的访问类
+    class Accessor{
+        MapMessageHandler& m_other;
+        std::unique_lock<std::mutex> m_guard;
+    public:
+        explicit Accessor(MapMessageHandler& other) : m_other(other), m_guard(other.m_lock){}
+
+        template<typename Param>
+        void bindRequest(const char *method, std::function<void(Param &, RequestID)> func) {
+            m_other.bindRequest(method, func);
+        }
+        void bindRequest(const char *method, std::function<void(value &, RequestID)> func) {
+            m_other.bindRequest(method, func);
+        }
+        template<typename Param>
+        void bindNotify(const char *method, std::function<void(Param &)> func) {
+            m_other.bindNotify(method, func);
+        }
+        void bindNotify(const char *method, std::function<void(value &)> func) {
+            m_other.bindNotify(method, func);
+        }
+        void bindResponse(RequestID id, std::function<void(value &)>func) {
+            m_other.bindResponse(id, func);
+        }
+        void bindAnyJsonRPC(std::function<void(MsgType, value&, string_ref)> func){
+            m_other.bindAnyJsonRPC(func);
+        }
+
+        void onAnyJsonRPC(MsgType type, value& dataPart, string_ref method = nullptr){m_other.onAnyJsonRPC(type, dataPart, method);}
+        void onNotify(string_ref method, value &params){m_other.onNotify(method, params);}
+        void onResponse(value &ID, value &result){m_other.onResponse(ID, result);}
+        void onError(value &ID, value &error){m_other.onError(ID, error);}
+        void onRequest(string_ref method, value &params, value &ID){m_other.onRequest(method,params,ID);}
+    };
+
+public:
     MapMessageHandler() = default;
+
+    Accessor access(){
+        return Accessor(*this);
+    }
+
     template<typename Param>
     void bindRequest(const char *method, std::function<void(Param &, RequestID)> func) {
         m_calls[method] = [=](json &params, json &id) {
@@ -49,6 +107,10 @@ public:
     void bindResponse(RequestID id, std::function<void(value &)>func) {
         m_requests.emplace_back(id, std::move(func));
     }
+    void bindAnyJsonRPC(std::function<void(MsgType, value&, string_ref)> func){
+        m_anyJsonCallback = func;
+    }
+
     void onNotify(string_ref method, value &params) override {
         std::string str = method.str();
         if (m_notify.count(str)) {
@@ -73,59 +135,98 @@ public:
             m_calls[string](params, ID);
         }
     }
+    void onAnyJsonRPC(MsgType type, value& dataPart, string_ref method = nullptr) override{
+        if(m_anyJsonCallback){
+            m_anyJsonCallback(type, dataPart, method);
+        }
+    }
+
 };
 
 class Transport {
 public:
+    virtual ~Transport(){};
+
     virtual void notify(string_ref method, value &params) = 0;
     virtual void request(string_ref method, value &params, RequestID &id) = 0;
-    virtual int loop(MessageHandler &) = 0;
+    virtual int loop(MessageHandler &){return 0;}
+    virtual int safeLoop() = 0;
+    virtual void requestStopLoop() = 0;
+};
+
+class JsonIOLayer{
+public:
+    virtual ~JsonIOLayer(){};
+
+    virtual bool readJson(value &) = 0;
+    virtual bool writeJson(value &) = 0;
+    virtual void close() = 0;
+    virtual bool isClosed() = 0;
 };
 
 class JsonTransport : public Transport {
-public:
+private:
+    MapMessageHandler& m_msgHandler;
+    JsonIOLayer& m_jsonIO;
+
     const char *jsonrpc = "2.0";
-    int loop(MessageHandler &handler) override {
-        while (true) {
+    std::atomic<bool> havingStopRequest = false;
+    std::chrono::milliseconds runningFrequency = std::chrono::milliseconds(20);
+public:
+    explicit JsonTransport(MapMessageHandler& msgHandler, JsonIOLayer& jsonIO) : m_msgHandler(msgHandler), m_jsonIO(jsonIO){}
+    virtual ~JsonTransport();
+
+    int safeLoop() override{
+        while (!havingStopRequest){
             try {
                 value value;
-                if (readJson(value)) {
+                if(m_jsonIO.isClosed()){throw "closed";}
+                if (m_jsonIO.readJson(value)){
+                    MapMessageHandler::Accessor accessor = m_msgHandler.access();
                     if (value.count("id")) {
                         if (value.contains("method")) {
-                            handler.onRequest(value["method"].get<std::string>(), value["params"], value["id"]);
+                            accessor.onAnyJsonRPC(MessageHandler::MsgType::Request, value["params"], value["method"].get<std::string>());
+                            accessor.onRequest(value["method"].get<std::string>(), value["params"], value["id"]);
                         } else if (value.contains("result")) {
-                            handler.onResponse(value["id"], value["result"]);
+                            accessor.onAnyJsonRPC(MessageHandler::MsgType::Response, value["result"], value["id"].get<std::string>());
+                            accessor.onResponse(value["id"], value["result"]);
                         } else if (value.contains("error")) {
-                            handler.onError(value["id"], value["error"]);
+                            accessor.onAnyJsonRPC(MessageHandler::MsgType::Error, value["error"]);
+                            accessor.onError(value["id"], value["error"]);
                         }
                     } else if (value.contains("method")) {
                         if (value.contains("params")) {
-                            handler.onNotify(value["method"].get<std::string>(), value["params"]);
+                            accessor.onAnyJsonRPC(MessageHandler::MsgType::Response, value["params"], value["method"].get<std::string>());
+                            accessor.onNotify(value["method"].get<std::string>(), value["params"]);
                         }
                     }
                 }
             } catch (std::exception &e) {
-
-                printf("error -> %s\n", e.what());
+                //std::cout<<e.what()<<std::endl;
             }
+            std::this_thread::sleep_for(runningFrequency);
         }
         return 0;
     }
+
+    void requestStopLoop() override{
+        havingStopRequest.store(true);
+        m_jsonIO.close();
+    }
+
     void notify(string_ref method, value &params) override {
         json value = {{"jsonrpc", jsonrpc},
                       {"method",  method},
                       {"params",  params}};
-        writeJson(value);
+        m_jsonIO.writeJson(value);
     }
     void request(string_ref method, value &params, RequestID &id) override {
         json rpc = {{"jsonrpc", jsonrpc},
                     {"id",      id},
                     {"method",  method},
                     {"params",  params}};
-        writeJson(rpc);
+        m_jsonIO.writeJson(rpc);
     }
-    virtual bool readJson(value &) = 0;
-    virtual bool writeJson(value &) = 0;
 };
 
 #endif //LSP_TRANSPORT_H

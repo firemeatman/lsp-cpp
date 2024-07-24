@@ -7,8 +7,10 @@
 #include "transport.h"
 #include "protocol.h"
 #include "windows.h"
+
 class LanguageClient : public JsonTransport {
 public:
+    LanguageClient(MapMessageHandler& msgHandler, JsonIOLayer& jsonIO) : JsonTransport(msgHandler, jsonIO){}
     virtual ~LanguageClient() = default;
 public:
     RequestID Initialize(option<DocumentUri> rootUri = {}) {
@@ -212,12 +214,18 @@ public:
         notify(method, params);
     }
 };
-class ProcessLanguageClient : public LanguageClient {
-public:
+class PipJsonIO : public JsonIOLayer{
+private:
     HANDLE fReadIn = nullptr, fWriteIn = nullptr;
     HANDLE fReadOut = nullptr, fWriteOut = nullptr;
     PROCESS_INFORMATION fProcess = {nullptr};
-    explicit ProcessLanguageClient(const char *program, const char *arguments = "") {
+
+    bool m_isClosed{false};
+    std::mutex m_closeLock;
+public:
+    explicit PipJsonIO(const char *program, const char *arguments = "")
+        :JsonIOLayer()
+    {
         SECURITY_ATTRIBUTES sa = {0};
         sa.nLength = sizeof(SECURITY_ATTRIBUTES);
         sa.bInheritHandle = true;
@@ -227,6 +235,14 @@ public:
         if (!CreatePipe(&fReadOut, &fWriteOut, &sa, 1024 * 1024)) {
             printf("Create Out Pipe error\n");
         }
+
+        // 设置非阻塞
+        DWORD mode = PIPE_NOWAIT;
+        if (!SetNamedPipeHandleState(fReadOut, &mode, NULL, NULL)) {
+
+            std::cerr << "Failed to set non-blocking mode for readout pipe." << std::endl;
+        }
+
         STARTUPINFO si = {0};
         si.cb = sizeof(si);
         si.hStdInput = fReadIn;
@@ -240,13 +256,17 @@ public:
         //m_exec.start(program, arguments);
         //m_exec.set_wait_timeout(exec_stream_t::s_child, INFINITE);
     }
-    ~ProcessLanguageClient() override {
-        /*
-        DisconnectNamedPipe(fReadIn);
-        DisconnectNamedPipe(fWriteIn);
-        DisconnectNamedPipe(fReadOut);
-        DisconnectNamedPipe(fWriteOut);
-        */
+    virtual ~PipJsonIO(){
+        this->PipJsonIO::close();
+    }
+
+    void close() override
+    {
+        std::lock_guard<std::mutex> _guard(m_closeLock);
+
+        if(m_isClosed){
+            return;
+        }
         CloseHandle(fReadIn);
         CloseHandle(fWriteIn);
         CloseHandle(fReadOut);
@@ -259,7 +279,16 @@ public:
         }
         CloseHandle(fProcess.hThread);
         CloseHandle(fProcess.hProcess);
+
+        m_isClosed = true;
     }
+
+    bool isClosed() override
+    {
+        std::lock_guard<std::mutex> _guard(m_closeLock);
+        return m_isClosed;
+    }
+
     void SkipLine() {
         char read;
         DWORD hasRead;
@@ -311,9 +340,13 @@ public:
         SkipLine();
         std::string read;
         Read(length, read);
+        if(read.empty()){
+            return false;
+        }
         try {
             json = json::parse(read);
         } catch (std::exception &e) {
+            return false;
             //printf("read error -> %s\nread -> %s\n ", e.what(), read.c_str());
         }
         return true;
