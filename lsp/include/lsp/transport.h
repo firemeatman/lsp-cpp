@@ -5,11 +5,14 @@
 #ifndef LSP_TRANSPORT_H
 #define LSP_TRANSPORT_H
 
-#include "uri.h"
+#include <lsp/uri.h>
+#include <lsp/iolayer.h>
+#include <iostream>
 #include <functional>
 #include <utility>
-#include <iostream>
 #include <mutex>
+
+namespace LspCore {
 
 using value = json;
 using RequestID = std::string;
@@ -145,23 +148,13 @@ public:
 
 class Transport {
 public:
-    virtual ~Transport(){};
+    virtual ~Transport(){}
 
     virtual void notify(string_ref method, value &params) = 0;
     virtual void request(string_ref method, value &params, RequestID &id) = 0;
     virtual int loop(MessageHandler &){return 0;}
     virtual int safeLoop() = 0;
     virtual void requestStopLoop() = 0;
-};
-
-class JsonIOLayer{
-public:
-    virtual ~JsonIOLayer(){};
-
-    virtual bool readJson(value &) = 0;
-    virtual bool writeJson(value &) = 0;
-    virtual void close() = 0;
-    virtual bool isClosed() = 0;
 };
 
 class JsonTransport : public Transport {
@@ -174,7 +167,7 @@ private:
     std::chrono::milliseconds runningFrequency = std::chrono::milliseconds(20);
 public:
     explicit JsonTransport(MapMessageHandler& msgHandler, JsonIOLayer& jsonIO) : m_msgHandler(msgHandler), m_jsonIO(jsonIO){}
-    virtual ~JsonTransport();
+    virtual ~JsonTransport(){}
 
     int safeLoop() override{
         while (!havingStopRequest){
@@ -201,8 +194,8 @@ public:
                         }
                     }
                 }
-            } catch (std::exception &e) {
-                //std::cout<<e.what()<<std::endl;
+            } catch (nlohmann::detail::exception& e) {
+                std::cout<<e.what()<<std::endl;
             }
             std::this_thread::sleep_for(runningFrequency);
         }
@@ -228,5 +221,8 @@ public:
         m_jsonIO.writeJson(rpc);
     }
 };
+
+
+}
 
 #endif //LSP_TRANSPORT_H
