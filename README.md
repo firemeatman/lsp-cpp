@@ -1,16 +1,6 @@
-# lsp-cpp
-An easy [language-server-protocol](https://github.com/microsoft/language-server-protocol) client
+﻿# lsp-cpp
 
-* 一个简单的lsp客户端
-* c++上目前似乎并没有一个简单好用lsp的客户端
-* 所以就想给我的代码编辑框写一个lsp client
+该项目从 "lsp-cpp项目(An easy language-server-protocol client)"Fork而来。
+源项目是一个十分简单的Lsp客户端，通俗易懂。官方的LspCpp有点庞大不太用的来，而此项目足够简单，适合简单使用。
+本项目的目的是基于lsp-client进行完善和扩展，包括跨平台支持、模块化改造、协议扩充等。
 
-只有头文件(header-only) 直接引用就好了
-
-cmake:
-
-`
-include_directories(${lsp_include_dirs})
-` 
-
-> 很多代码参考clangd 有的直接Ctrl+C了 (●'◡'●)

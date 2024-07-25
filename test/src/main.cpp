@@ -3,6 +3,7 @@
 #include <fstream>
 #include <lsp/client.h>
 using namespace nlohmann;
+using namespace LspCore;
 
 bool readFile(std::string& path, std::string* data) 
 {
@@ -23,41 +24,59 @@ bool readFile(std::string& path, std::string* data)
     return true;
 }
 
+void copyCompileCommandsFiles()
+{
+    std::string source = "D:/c_workstation/projects/Third_Fork_Projects/lsp-cpp/out/build/x64-Debug/compile_commands.json";
+    std::string target = "D:/c_workstation/projects/Third_Fork_Projects/lsp-cpp/compile_commands.json";
+    std::ifstream  src(source, std::ios::binary);
+    std::ofstream  dst(target, std::ios::binary);
+
+    dst << src.rdbuf();
+}
+auto debugFunc = [](value& j) {
+    //value method = j.at("method");
+    std::cout << "========================================\n";
+    std::cout << j << std::endl;
+};
+
+
 int main() {
     std::string file1_uri = "file:///D:/c_workstation/projects/Third_Fork_Projects/lsp-cpp/test/src/main.cpp";
     std::string file1_path = "D:/c_workstation/projects/Third_Fork_Projects/lsp-cpp/test/src/main.cpp";
     std::string root_uri = "file:///D:/c_workstation/projects/Third_Fork_Projects/lsp-cpp";
-    //std::string file1_text;
-    //std::string file2_text;
-    ProcessLanguageClient client(R"(D:\c_workstation\soft_tool\clangd_17.0.3\bin\clangd.exe)");
+    PipJsonIO jsonIO(R"(D:\c_workstation\soft_tool\clangd_17.0.3\bin\clangd.exe)");
     MapMessageHandler msgHandler;
-    auto debugFunc = [](value& j) {
-        //value method = j.at("method");
-        std::cout << "========================================\n";
-        std::cout << j << std::endl;
-    };
-    msgHandler.bindNotify(METHOD_PublishDiagnostics.c_str(), debugFunc);
-    msgHandler.bindNotify(METHOD_DidOpen.c_str(), debugFunc);
-    msgHandler.bindNotify(METHOD_DidClose.c_str(), debugFunc);
+    LanguageClient client(msgHandler, jsonIO);
+
+    copyCompileCommandsFiles();
+    {
+        MapMessageHandler::Accessor accessor = msgHandler.access();
+        accessor.bindNotify(METHOD_PublishDiagnostics.c_str(), debugFunc);
+        accessor.bindNotify(METHOD_DidOpen.c_str(), debugFunc);
+        accessor.bindNotify(METHOD_DidClose.c_str(), debugFunc);
+    }
 
     std::thread thread([&] {
-        client.loop(msgHandler);
+        client.safeLoop();
     });
 
     int res;
     while (scanf("%d", &res)) {
+        
         switch (res)
         {
         case 0: // 退出
         {
             client.Exit();
-            thread.detach();
+            client.requestStopLoop();
+            thread.join();
             return 0;
             break;
         }
         case 1: // 初始化
         {
-            msgHandler.bindResponse(client.Initialize(string_ref(root_uri)), debugFunc);
+            MapMessageHandler::Accessor accessor = msgHandler.access();
+            accessor.bindResponse(client.Initialize(string_ref(root_uri)), debugFunc);
             break;
         }
         case 2: // 打开文件
@@ -74,13 +93,15 @@ int main() {
         }
         case 4: // 获取词语列表
         {
-            msgHandler.bindResponse(client.SemanticTokensALL(string_ref(file1_uri)), debugFunc);
+            MapMessageHandler::Accessor accessor = msgHandler.access();
+            accessor.bindResponse(client.SemanticTokensALL(string_ref(file1_uri)), debugFunc);
             break;
         }
         case 5: // 悬停信息
         {
+            MapMessageHandler::Accessor accessor = msgHandler.access();
             Position pos{8, 13};
-            msgHandler.bindResponse(client.Hover(string_ref(file1_uri), pos), debugFunc);
+            accessor.bindResponse(client.Hover(string_ref(file1_uri), pos), debugFunc);
             break;
         }
         default:
